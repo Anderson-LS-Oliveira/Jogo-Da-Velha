@@ -16,7 +16,7 @@ Abra o projeto no IntelliJ.
 Vá em Run → Edit Configurations.
 Em Environment Variables, adicione:
 
-GEMINI_API_KEY=sua_chave_aqui
+GOOGLE_API_KEY=sua_chave_aqui
 
 
 Execute a aplicação.
