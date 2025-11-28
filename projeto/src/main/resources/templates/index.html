@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Jogo da Velha com IA</title>
+
+    <style>
+        body {
+            font-family: sans-serif;
+            background: #f3f3f3;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding-top: 20px;
+        }
+
+        #status {
+            font-size: 20px;
+            margin-bottom: 10px;
+        }
+
+        #board {
+            display: grid;
+            grid-template-columns: repeat(3, 100px);
+            grid-gap: 6px;
+        }
+
+        .cell {
+            width: 100px;
+            height: 100px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 40px;
+            border: 2px solid #222;
+            background: white;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .cell.disabled {
+            pointer-events: none;
+            opacity: 0.55;
+        }
+
+        #controls {
+            margin-top: 12px;
+        }
+    </style>
+</head>
+
+<body>
+
+<h2 id="status">Sua vez</h2>
+
+<div>
+    Vitórias: <span id="vitorias">0</span> |
+    Derrotas: <span id="derrotas">0</span> |
+    Empates: <span id="empates">0</span>
+</div>
+
+<div id="board"></div>
+
+<div id="controls">
+    <button onclick="reiniciarJogo()">Reiniciar agora</button>
+</div>
+
+<script>
+    const divStatus = document.getElementById('status');
+    const tabuleiroEl = document.getElementById('board');
+
+    let tabuleiro = ["", "", "", "", "", "", "", "", ""];
+    let turnoJogador = true;
+    let jogoAcabou = false;
+
+    const vitoriasPossiveis = [
+        [0, 1, 2], [3, 4, 5], [6, 7, 8],
+        [0, 3, 6], [1, 4, 7], [2, 5, 8],
+        [0, 4, 8], [2, 4, 6]
+    ];
+
+    function renderizarTabuleiro() {
+        tabuleiroEl.innerHTML = "";
+
+        for (let i = 0; i < 9; i++) {
+            const celula = document.createElement('div');
+            celula.className = 'cell';
+
+            if (tabuleiro[i] !== "") {
+                celula.textContent = tabuleiro[i];
+            }
+
+            if (!turnoJogador || jogoAcabou || tabuleiro[i] !== "") {
+                celula.classList.add('disabled');
+            }
+
+            if (turnoJogador && !jogoAcabou && tabuleiro[i] === "") {
+                celula.onclick = () => movimentoJogador(i);
+            }
+
+            tabuleiroEl.appendChild(celula);
+        }
+    }
+
+    function verificarVitoria(simbolo) {
+        return vitoriasPossiveis.some(
+            p => p.every(i => tabuleiro[i] === simbolo)
+        );
+    }
+
+    function obterResultado() {
+        for (const p of vitoriasPossiveis) {
+            const [a, b, c] = p;
+            if (tabuleiro[a] &&
+                tabuleiro[a] === tabuleiro[b] &&
+                tabuleiro[a] === tabuleiro[c]) {
+                return tabuleiro[a];
+            }
+        }
+
+        if (!tabuleiro.includes("")) return "E";
+        return null;
+    }
+
+    async function movimentoJogador(i) {
+        if (!turnoJogador || jogoAcabou || tabuleiro[i] !== "") return;
+
+        tabuleiro[i] = "X";
+        renderizarTabuleiro();
+
+        const r = obterResultado();
+        if (r) {
+            await finalizarJogo(r);
+            return;
+        }
+
+        turnoJogador = false;
+        divStatus.textContent = "IA jogando...";
+        renderizarTabuleiro();
+
+        await movimentoIA();
+    }
+
+    async function movimentoIA() {
+        const strTabuleiro = tabuleiro.map(c => c === "" ? "_" : c).join("");
+        let posIA = -1;
+
+        try {
+            const resp = await fetch('/ai-move', {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain' },
+                body: strTabuleiro
+            });
+
+            if (!resp.ok) throw new Error();
+
+            const texto = (await resp.text()).trim();
+            const m = texto.match(/[0-8]/);
+            posIA = m ? Number(m[0]) : NaN;
+
+            if (isNaN(posIA) || posIA < 0 || posIA > 8 || tabuleiro[posIA] !== "") {
+                posIA = tabuleiro.findIndex(c => c === "");
+            }
+        } catch {
+            posIA = tabuleiro.findIndex(c => c === "");
+        }
+
+        if (posIA === -1) {
+            await finalizarJogo("E");
+            return;
+        }
+
+        tabuleiro[posIA] = "O";
+        renderizarTabuleiro();
+
+        const r = obterResultado();
+        if (r) {
+            await finalizarJogo(r);
+            return;
+        }
+
+        turnoJogador = true;
+        divStatus.textContent = "Sua vez";
+        renderizarTabuleiro();
+    }
+
+    async function finalizarJogo(resultado) {
+        jogoAcabou = true;
+
+        if (resultado === "X") divStatus.textContent = "Você venceu!";
+        else if (resultado === "O") divStatus.textContent = "A IA venceu!";
+        else divStatus.textContent = "Empate!";
+
+        try {
+            await fetch('/update-score?result=' + resultado, { method: 'POST' });
+            await carregarScore();
+        } catch {}
+
+        setTimeout(() => reiniciarJogo(), 1400);
+    }
+
+    function reiniciarJogo() {
+        tabuleiro = ["", "", "", "", "", "", "", "", ""];
+        jogoAcabou = false;
+        turnoJogador = true;
+        divStatus.textContent = "Sua vez";
+        renderizarTabuleiro();
+    }
+
+    async function carregarScore() {
+        try {
+            const r = await fetch('/score');
+            if (!r.ok) return;
+            const s = await r.json();
+
+            document.getElementById('vitorias').textContent = s.vitorias;
+            document.getElementById('derrotas').textContent = s.derrotas;
+            document.getElementById('empates').textContent = s.empates;
+        } catch {}
+    }
+
+    renderizarTabuleiro();
+    carregarScore();
+</script>
+
+</body>
+</html>
